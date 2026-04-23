@@ -1,0 +1,191 @@
+#!/bin/bash
+set -e
+
+# Parse arguments
+if [ -z "$1" ]; then
+    echo "Usage: agent-workspace <feature-name>           # use cwd as workspace"
+    echo "       agent-workspace <repo-path> <feature-name>  # clone to ~/workspaces/"
+    exit 1
+fi
+
+if [ -z "$2" ]; then
+    # Single arg: use cwd as workspace
+    FEATURE=$1
+    WORKSPACE_DIR=$(pwd)
+
+    if [ ! -d ".git" ]; then
+        echo "Error: Current directory is not a git repository"
+        exit 1
+    fi
+else
+    # Two args: clone repo to ~/workspaces/
+    REPO=$1
+    FEATURE=$2
+
+    # Get remote URL from local repo (so we clone fresh from remote)
+    if [ -d "$REPO/.git" ] || [ -d "$REPO" ]; then
+        REMOTE_URL=$(git -C "$REPO" remote get-url origin 2>/dev/null || echo "")
+        if [ -n "$REMOTE_URL" ]; then
+            echo "Cloning from remote: $REMOTE_URL"
+            CLONE_SOURCE="$REMOTE_URL"
+        else
+            echo "No remote origin found, cloning from local: $REPO"
+            CLONE_SOURCE="$REPO"
+        fi
+    else
+        # Assume it's already a URL
+        CLONE_SOURCE="$REPO"
+    fi
+
+    # Extract repo name from path or URL (e.g., /path/to/gensim or git@github.com:org/gensim.git -> gensim)
+    REPO_NAME=$(basename "$CLONE_SOURCE" .git)
+
+    WORKSPACE_DIR=~/workspaces/$FEATURE/$REPO_NAME
+    mkdir -p ~/workspaces/$FEATURE
+    git clone --recurse-submodules "$CLONE_SOURCE" $WORKSPACE_DIR
+    cd $WORKSPACE_DIR
+fi
+
+# Create feature branch
+git checkout -b $(whoami)/$FEATURE
+
+# Configure git-appraise notes sync
+git config --add remote.origin.fetch '+refs/notes/*:refs/notes/*'
+
+# Add 'local' remote for agents to push PRs to (keeps origin = GitHub)
+git remote add local "$WORKSPACE_DIR" 2>/dev/null || git remote set-url local "$WORKSPACE_DIR"
+git config --add remote.local.fetch '+refs/notes/*:refs/notes/*'
+
+# Allow agents to push to local even when branch is checked out
+git config receive.denyCurrentBranch updateInstead
+
+# Mark as agent workspace (in .git so it doesn't show as uncommitted)
+echo "$FEATURE" > .git/agent-workspace
+# Store workspace path for agents to find agent-data
+echo "$WORKSPACE_DIR" > .git/agent-workspace-path
+
+# Store coordinator system prompt
+cat > $WORKSPACE_DIR/.git/agent-coordinator-prompt << 'COORDINATOR_PROMPT'
+You are the coordinator agent in a multi-agent development workflow.
+
+WORKSPACE STRUCTURE:
+  ~/workspaces/<feature>/
+    <repo-name>/          <- This directory (coordinator workspace)
+    <agent-name>/         <- Agent worktrees (created by agent-spawn)
+
+SPAWNING AGENTS:
+  agent-spawn "<task description>" [agent-name]
+
+  Examples:
+    agent-spawn "Fix the login bug in auth.py"
+    agent-spawn "Add unit tests for the parser module" "parser-tests"
+    agent-spawn "Refactor database connection pooling" "db-refactor"
+
+  This creates:
+  - A git worktree at ~/workspaces/<feature>/<agent-name>/
+  - A new tmux window "agent:<agent-name>"
+  - Status tracking in .git/agent-data/<agent-name>/
+  - The agent starts working immediately in its isolated environment
+
+MONITORING AGENTS:
+  agent-list              # List all agents with status
+  agent-list json         # JSON format for parsing
+
+  Status files in .git/agent-data/<agent-name>/:
+  - status: working | review_requested | changes_requested | approved | merged
+  - task: the original task description
+  - pr-info.json: branch, target, commit, description (after submit)
+  - feedback.md: reviewer feedback (after rejection)
+
+AGENT LIFECYCLE:
+  1. agent-spawn starts agent with task
+  2. Agent works in isolated worktree
+  3. Agent runs submit-review "message" and exits
+  4. Status becomes "review_requested"
+  5. User reviews in vim (<leader>rr to list, <leader>ra accept, <leader>rx reject)
+  6. On reject: agent auto-restarts with feedback context
+  7. On accept: branch is merged, status becomes "merged"
+
+CLEANUP:
+  agent-cleanup <agent-name>    # Remove agent worktree, branch, and data
+
+YOUR ROLE:
+- Help user break down features into agent tasks
+- Suggest what agents to spawn for a given feature
+- Monitor agent progress and summarize status
+- Help resolve merge conflicts if they occur
+- User handles code review in vim (not you)
+
+USEFUL COMMANDS:
+  agent-list                           # List all agents with status
+  agent-spawn "task" [name]            # Spawn new agent
+  agent-continue <name> "prompt"       # Resume agent with feedback
+  agent-cleanup <name>                 # Remove agent after merge
+  git worktree list                    # See all worktrees
+  git diff main..agent/<name>          # See agent's changes
+  cat .git/agent-data/<name>/task      # See agent's original task
+  cat .git/agent-data/<name>/status    # Check agent status
+COORDINATOR_PROMPT
+
+# Install post-merge hook to notify agents via status files
+cat > $WORKSPACE_DIR/.git/hooks/post-merge << 'HOOK'
+#!/bin/bash
+# Notify all active agents to rebase after a merge via status files
+
+AGENT_DATA_BASE=".git/agent-data"
+[ -d "$AGENT_DATA_BASE" ] || exit 0
+
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+COMMIT=$(git log -1 --pretty=format:"%h %s")
+
+for agent_dir in "$AGENT_DATA_BASE"/*/; do
+    [ -d "$agent_dir" ] || continue
+    status_file="$agent_dir/status"
+    [ -f "$status_file" ] || continue
+
+    status=$(cat "$status_file")
+    # Only notify agents that are working (not in review/approved/merged state)
+    if [ "$status" = "working" ]; then
+        echo "rebase_needed" > "$status_file"
+        echo "Workspace merged: $COMMIT. Run: git fetch origin && git rebase origin/$BRANCH" > "$agent_dir/feedback.md"
+    fi
+done
+HOOK
+chmod +x $WORKSPACE_DIR/.git/hooks/post-merge
+
+# Create agent-data directory
+mkdir -p $WORKSPACE_DIR/.git/agent-data
+
+# Get the directory where this script lives (for finding config files)
+AGENT_CONFIG_DIR="$(dirname "$(readlink -f "$0")")"
+
+# Create shared .claude/settings.json in feature parent directory
+# This applies to both coordinator and all agent worktrees
+FEATURE_ROOT=$(dirname "$WORKSPACE_DIR")
+mkdir -p "$FEATURE_ROOT/.claude"
+VALIDATOR_SCRIPT="$AGENT_CONFIG_DIR/validate-agent-path"
+cat > "$FEATURE_ROOT/.claude/settings.json" << SETTINGS
+{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Edit", "hooks": [{"type": "command", "command": "$VALIDATOR_SCRIPT"}]},
+      {"matcher": "Write", "hooks": [{"type": "command", "command": "$VALIDATOR_SCRIPT"}]}
+    ]
+  }
+}
+SETTINGS
+echo "Created shared hook settings at $FEATURE_ROOT/.claude/settings.json"
+
+# Load allowed tools for coordinator (separate from agent tools)
+ALLOWED_TOOLS_FILE="$AGENT_CONFIG_DIR/coordinator-allowed-tools"
+if [ -f "$ALLOWED_TOOLS_FILE" ]; then
+    ALLOWED_TOOLS=$(grep -v '^#' "$ALLOWED_TOOLS_FILE" | grep -v '^$' | tr '\n' ' ')
+else
+    ALLOWED_TOOLS="Edit Read Write Glob Grep Bash(git:*) Bash(agent-*)"
+fi
+
+# Start tmux session with Claude as coordinator
+tmux new-session -d -s $FEATURE -c $WORKSPACE_DIR
+tmux send-keys -t $FEATURE "printf '\\033]1;$FEATURE\\007'" Enter
+tmux send-keys -t $FEATURE "claude --allowedTools '$ALLOWED_TOOLS' --append-system-prompt \"\$(cat .git/agent-coordinator-prompt)\" 'You are the coordinator for the $FEATURE workspace. Help me manage agents and review PRs. Start by telling me the available commands.'" Enter
+tmux attach -t $FEATURE

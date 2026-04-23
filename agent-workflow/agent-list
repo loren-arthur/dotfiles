@@ -1,0 +1,61 @@
+#!/bin/bash
+
+# Validate we're in a workspace
+if [ ! -f ".git/agent-workspace" ]; then
+    echo "Error: Not in an agent workspace (missing .git/agent-workspace marker)"
+    exit 1
+fi
+
+AGENT_WINDOWS=".git/agent-windows"
+if [ ! -f "$AGENT_WINDOWS" ]; then
+    echo "No agents spawned from this workspace"
+    exit 0
+fi
+
+FORMAT=${1:-"human"}  # "human" or "json"
+
+if [ "$FORMAT" = "json" ]; then
+    echo "["
+    FIRST=true
+    while IFS=$'\t' read -r window dir branch source_repo session data_dir; do
+        # Check if window exists in session
+        if tmux list-windows -t "$session" -F '#W' 2>/dev/null | grep -q "^${window}$"; then
+            TMUX_STATUS="running"
+        else
+            TMUX_STATUS="exited"
+        fi
+        # Read agent status from status file
+        AGENT_STATUS=""
+        if [ -f "$data_dir/status" ]; then
+            AGENT_STATUS=$(cat "$data_dir/status")
+        fi
+        if [ "$FIRST" = true ]; then
+            FIRST=false
+        else
+            echo ","
+        fi
+        echo "  {\"window\": \"$window\", \"dir\": \"$dir\", \"branch\": \"$branch\", \"workspace\": \"$source_repo\", \"session\": \"$session\", \"data_dir\": \"$data_dir\", \"tmux_status\": \"$TMUX_STATUS\", \"agent_status\": \"$AGENT_STATUS\"}"
+    done < "$AGENT_WINDOWS"
+    echo "]"
+else
+    echo "Active agents:"
+    echo "=============="
+    while IFS=$'\t' read -r window dir branch source_repo session data_dir; do
+        # Check if window exists in session
+        if tmux list-windows -t "$session" -F '#W' 2>/dev/null | grep -q "^${window}$"; then
+            STATUS="running"
+        else
+            STATUS="exited"
+        fi
+        # Read agent status from status file
+        AGENT_STATUS=""
+        if [ -f "$data_dir/status" ]; then
+            AGENT_STATUS=$(cat "$data_dir/status")
+        fi
+        echo "  $window ($STATUS)"
+        echo "    Branch: $branch"
+        echo "    Worktree: $dir"
+        echo "    Status: ${AGENT_STATUS:-unknown}"
+        echo ""
+    done < "$AGENT_WINDOWS"
+fi

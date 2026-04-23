@@ -1,0 +1,147 @@
+#!/bin/bash
+
+cat << 'EOF'
+Multi-Agent Development Workflow
+================================
+
+A workflow for coordinating multiple Claude agents working on isolated
+git worktrees, with code review via git-appraise before merging.
+
+WORKSPACE STRUCTURE
+-------------------
+
+  origin/main (GitHub)
+      │
+      │ (final PR when feature complete)
+      │
+  ~/workspaces/<feature>/
+      │
+      ├── <repo-name>/            ← Coordinator workspace (you + claude)
+      │   └── .git/agent-data/    ← Agent status tracking
+      │
+      ├── <agent-name>/           ← Agent 1 worktree (tmux tab)
+      ├── <agent-name>/           ← Agent 2 worktree (tmux tab)
+      └── <agent-name>/           ← Agent 3 worktree (tmux tab)
+
+COMMANDS
+--------
+
+  agent-workspace <feature>
+  agent-workspace <repo> <feature>
+      Initialize an agent workspace.
+      - Single arg: use current directory as workspace
+      - Two args: clone repo to ~/workspaces/<feature>/<repo-name>/
+      - Creates <username>/<feature> branch
+      - Starts tmux session with coordinator claude
+
+  agent-spawn <task-description> [agent-name]
+      Spawn an agent in a new tmux tab.
+      - agent-name: short name for branch/tab (auto-generated if not provided)
+      - Creates git worktree at ~/workspaces/<feature>/<agent-name>/
+      - Opens new tmux window with claude working on task
+      - Agent has restricted file access (only their worktree)
+
+  agent-list [json]
+      List all agents spawned from this workspace.
+      - Shows window name, branch, worktree directory, status
+      - Use 'json' argument for machine-readable output
+
+  agent-cleanup <agent-name>
+      Remove an agent after merge.
+      - Kills tmux window
+      - Removes git worktree
+      - Deletes agent branch
+      - Cleans up agent data
+
+  agent-help
+      Show this help message.
+
+AGENT LIFECYCLE
+---------------
+
+  1. agent-spawn "task" starts agent with task
+  2. Agent works in isolated worktree
+  3. Agent runs: submit-review "description"
+  4. Agent exits with /exit (waits for feedback)
+  5. Status becomes "review_requested"
+  6. User reviews in vim (<leader>rr)
+  7. On reject (<leader>rx): agent auto-restarts with feedback
+  8. On accept (<leader>ra): branch is merged
+  9. agent-cleanup removes the agent
+
+VIM KEYBINDINGS
+---------------
+
+  Review workflow (recommended):
+    <leader>rr    List agents waiting for review, cd to selected agent's worktree
+    <leader>ra    Accept: merge branch, return to main workspace
+    <leader>rx    Reject: write feedback, restart agent, return to main
+    <leader>rq    Quit review without decision, return to main
+
+  File exploration (while in agent worktree):
+    <leader>ri    FZF changed files (opens with inline gutter diff)
+    <leader>rs    Side-by-side vimdiff of current file
+    <leader>ro    Close side-by-side diff
+
+  Comments:
+    <leader>rc    Comment on line with context
+    <leader>rC    Comment without context (diff-aware)
+
+  Legacy (git checkout workflow):
+    <leader>rp    FZF list PRs via git-appraise
+    <leader>rl    List pending reviews (text)
+
+TYPICAL SESSION
+---------------
+
+  # 1. Start feature workspace
+  cd ~/repos/myproject
+  agent-workspace new-feature
+
+  # Or clone to ~/workspaces/
+  agent-workspace ~/repos/myproject new-feature
+
+  # 2. Spawn agents for subtasks
+  agent-spawn "implement user authentication"
+  agent-spawn "add API endpoints for users"
+  agent-spawn "write unit tests for auth module"
+
+  # 3. Monitor agents
+  agent-list
+
+  # 4. When agent submits (bell notification), review in vim
+  <leader>rr           # Select agent, cd to their worktree
+  # Browse code with LSP, run tests, etc.
+  <leader>rc           # Add comments if needed
+
+  # 5. Accept or reject
+  <leader>ra           # Accept: merges and returns to main
+  # or
+  <leader>rx           # Reject: restarts agent with feedback
+
+  # 6. Cleanup after merge
+  agent-cleanup <agent-name>
+
+  # 7. Final PR to upstream when feature complete
+  git push upstream <username>/new-feature
+  gh pr create
+
+AGENT STATUS FILES
+------------------
+
+  Located in .git/agent-data/<agent-name>/:
+    status       - working | review_requested | changes_requested | approved | merged
+    task         - Original task description
+    system-prompt - Agent's system instructions
+    pr-info.json - Branch, target, commit, description (after submit)
+    feedback.md  - Reviewer feedback (after rejection)
+    launch.sh    - Script to start agent initially
+
+RESUMING AGENTS
+---------------
+
+  agent-continue <agent-name> "prompt"
+      Resume an agent with feedback (used by vim on reject).
+      Can also be run manually from the main workspace.
+
+EOF

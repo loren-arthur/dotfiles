@@ -1,0 +1,78 @@
+#!/bin/bash
+# Agent polling script - watches for status changes
+# Usage: source this or run in background
+
+POLL_INTERVAL=${POLL_INTERVAL:-10}
+
+# Find our agent data dir
+find_agent_data_dir() {
+    local branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+    local agent_name=${branch#agent/}
+
+    # Look for agent-data in origin
+    local origin_path=$(git config --get remote.origin.url 2>/dev/null)
+    if [ -d "$origin_path/.git/agent-data/$agent_name" ]; then
+        echo "$origin_path/.git/agent-data/$agent_name"
+    else
+        echo ""
+    fi
+}
+
+AGENT_DATA_DIR=$(find_agent_data_dir)
+if [ -z "$AGENT_DATA_DIR" ]; then
+    echo "Could not find agent data directory"
+    exit 1
+fi
+
+STATUS_FILE="$AGENT_DATA_DIR/status"
+FEEDBACK_FILE="$AGENT_DATA_DIR/feedback.md"
+
+# Initialize status if not exists
+[ -f "$STATUS_FILE" ] || echo "working" > "$STATUS_FILE"
+
+poll_status() {
+    local last_status=""
+
+    while true; do
+        if [ -f "$STATUS_FILE" ]; then
+            local current_status=$(cat "$STATUS_FILE")
+
+            if [ "$current_status" != "$last_status" ]; then
+                case "$current_status" in
+                    changes_requested)
+                        echo ""
+                        echo "========================================"
+                        echo "CHANGES REQUESTED"
+                        echo "========================================"
+                        if [ -f "$FEEDBACK_FILE" ]; then
+                            cat "$FEEDBACK_FILE"
+                        fi
+                        echo ""
+                        echo "Review comments: git appraise show"
+                        echo "After fixing: submit-review \"Address feedback\""
+                        echo "========================================"
+                        ;;
+                    approved)
+                        echo ""
+                        echo "========================================"
+                        echo "PR APPROVED AND MERGED!"
+                        echo "========================================"
+                        echo "Your work has been merged. Task complete."
+                        echo "========================================"
+                        ;;
+                esac
+                last_status="$current_status"
+            fi
+        fi
+        sleep "$POLL_INTERVAL"
+    done
+}
+
+# Export for use in scripts
+export AGENT_DATA_DIR STATUS_FILE FEEDBACK_FILE
+
+# If run directly, start polling
+if [ "${BASH_SOURCE[0]}" == "${0}" ]; then
+    echo "Polling for status changes (every ${POLL_INTERVAL}s)..."
+    poll_status
+fi

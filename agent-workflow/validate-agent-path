@@ -1,0 +1,53 @@
+#!/bin/bash
+# validate-agent-path - Hook script to block Edit/Write outside agent's worktree
+# Agents can read/search anywhere but can only modify files in their worktree
+# Used as a PreToolUse hook for spawned agents
+
+# AGENT_ALLOWED_DIR must be set in environment
+if [ -z "$AGENT_ALLOWED_DIR" ]; then
+    # No allowed dir = no edits allowed (coordinator shouldn't edit directly)
+    INPUT=$(cat)
+    FILE_PATH=$(echo "$INPUT" | jq -r '.file_path // .path // empty' 2>/dev/null)
+    echo "BLOCKED: Edits not allowed - no AGENT_ALLOWED_DIR set (path: $FILE_PATH)" >&2
+    exit 2
+fi
+
+# Read tool input from stdin (JSON)
+INPUT=$(cat)
+
+# Extract file paths from various tool input formats
+# Edit, Read, Write use file_path
+# Glob, Grep use path (optional, defaults to cwd)
+FILE_PATH=$(echo "$INPUT" | jq -r '.file_path // .path // empty' 2>/dev/null)
+
+# If no path specified, tool will use cwd which should be fine
+if [ -z "$FILE_PATH" ]; then
+    exit 0
+fi
+
+# Resolve to absolute path (handle .., symlinks, etc)
+# Use -m to not require the path to exist yet (for Write)
+REAL_PATH=$(realpath -m "$FILE_PATH" 2>/dev/null)
+if [ -z "$REAL_PATH" ]; then
+    REAL_PATH="$FILE_PATH"
+fi
+
+# Check if path is within allowed directory
+ALLOWED_REAL=$(realpath -m "$AGENT_ALLOWED_DIR" 2>/dev/null)
+
+if [[ "$REAL_PATH" == "$ALLOWED_REAL"* ]]; then
+    # Path is within allowed directory
+    exit 0
+fi
+
+# Also allow access to the agent data directory (for status checks)
+if [ -n "$AGENT_DATA_DIR" ]; then
+    DATA_REAL=$(realpath -m "$AGENT_DATA_DIR" 2>/dev/null)
+    if [[ "$REAL_PATH" == "$DATA_REAL"* ]]; then
+        exit 0
+    fi
+fi
+
+# Blocked - output goes to stderr and causes hook to reject
+echo "BLOCKED: Cannot access '$FILE_PATH' - outside your worktree ($AGENT_ALLOWED_DIR)" >&2
+exit 2

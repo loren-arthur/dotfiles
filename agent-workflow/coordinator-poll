@@ -1,0 +1,80 @@
+#!/bin/bash
+# Coordinator polling script - watches for new PRs and handles merges
+# Run this in your coordinator tmux tab
+
+POLL_INTERVAL=${POLL_INTERVAL:-15}
+WORKSPACE_DIR="${1:-.}"
+AGENT_DATA_BASE="$WORKSPACE_DIR/.git/agent-data"
+
+# Track what we've already notified about
+declare -A NOTIFIED_PRS
+
+poll_for_prs() {
+    while true; do
+        # Check each agent's status
+        for agent_dir in "$AGENT_DATA_BASE"/*/; do
+            [ -d "$agent_dir" ] || continue
+
+            local agent_name=$(basename "$agent_dir")
+            local status_file="$agent_dir/status"
+            local pr_info_file="$agent_dir/pr-info.json"
+
+            [ -f "$status_file" ] || continue
+            local status=$(cat "$status_file")
+
+            case "$status" in
+                review_requested)
+                    # Check if we already notified
+                    local pr_key="${agent_name}_$(cat "$pr_info_file" 2>/dev/null | grep commit | cut -d'"' -f4)"
+                    if [ -z "${NOTIFIED_PRS[$pr_key]}" ]; then
+                        echo ""
+                        echo "========================================"
+                        echo "NEW PR FROM: $agent_name"
+                        echo "========================================"
+                        if [ -f "$pr_info_file" ]; then
+                            cat "$pr_info_file" | grep -E '"(description|branch|target)"' | sed 's/[",]//g' | sed 's/^  //'
+                        fi
+                        echo ""
+                        echo "Review: git appraise list"
+                        echo "Checkout: <leader>rp in vim"
+                        echo "========================================"
+                        NOTIFIED_PRS[$pr_key]=1
+                    fi
+                    ;;
+                approved)
+                    # Handle merge if not already done
+                    local merge_key="${agent_name}_merged"
+                    if [ -z "${NOTIFIED_PRS[$merge_key]}" ] && [ -f "$pr_info_file" ]; then
+                        local branch=$(cat "$pr_info_file" | grep '"branch"' | cut -d'"' -f4)
+                        local target=$(cat "$pr_info_file" | grep '"target"' | cut -d'"' -f4)
+
+                        echo ""
+                        echo "========================================"
+                        echo "MERGING: $agent_name"
+                        echo "========================================"
+
+                        cd "$WORKSPACE_DIR"
+                        git checkout "$target" 2>/dev/null
+                        if git merge "$branch" --no-edit 2>&1; then
+                            echo "Merged $branch into $target"
+                            # Mark as merged
+                            echo "merged" > "$status_file"
+                            NOTIFIED_PRS[$merge_key]=1
+                        else
+                            echo "ERROR: Merge failed - resolve manually"
+                            git merge --abort 2>/dev/null
+                        fi
+                        echo "========================================"
+                    fi
+                    ;;
+            esac
+        done
+
+        sleep "$POLL_INTERVAL"
+    done
+}
+
+echo "Coordinator polling started (every ${POLL_INTERVAL}s)"
+echo "Watching: $AGENT_DATA_BASE"
+echo ""
+poll_for_prs

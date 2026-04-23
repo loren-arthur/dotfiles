@@ -1,0 +1,85 @@
+#!/bin/bash
+set -e
+
+WINDOW=$1
+if [ -z "$WINDOW" ]; then
+    echo "Usage: agent-cleanup <window-name-or-agent-name>"
+    echo "  e.g.: agent-cleanup agent:foo"
+    echo "  e.g.: agent-cleanup foo"
+    exit 1
+fi
+
+# Normalize window name (add agent: prefix if not present)
+if [[ ! "$WINDOW" =~ ^agent: ]]; then
+    LOOKUP_WINDOW="agent:$WINDOW"
+else
+    LOOKUP_WINDOW="$WINDOW"
+fi
+
+# Validate we're in a workspace
+if [ ! -f ".git/agent-workspace" ]; then
+    echo "Error: Not in an agent workspace (missing .git/agent-workspace marker)"
+    exit 1
+fi
+
+WORKSPACE_MAIN=$(pwd)
+
+# Get the directory from the tracking file
+AGENT_DIR=""
+SESSION=""
+AGENT_DATA_DIR=""
+BRANCH=""
+if [ -f ".git/agent-windows" ]; then
+    while IFS=$'\t' read -r w dir branch_name source_repo sess data_dir; do
+        if [ "$w" = "$LOOKUP_WINDOW" ]; then
+            AGENT_DIR="$dir"
+            SESSION="$sess"
+            AGENT_DATA_DIR="$data_dir"
+            BRANCH="$branch_name"
+            break
+        fi
+    done < ".git/agent-windows"
+fi
+
+if [ -z "$AGENT_DIR" ]; then
+    echo "Error: Agent window '$LOOKUP_WINDOW' not found in this workspace"
+    exit 1
+fi
+
+# Remove from agent-windows tracking file (match window name at start of line)
+grep -v "^${LOOKUP_WINDOW}	" ".git/agent-windows" > ".git/agent-windows.tmp" || true
+mv ".git/agent-windows.tmp" ".git/agent-windows"
+
+# Kill window if it exists
+if [ -n "$SESSION" ] && tmux list-windows -t "$SESSION" -F '#W' 2>/dev/null | grep -q "^${LOOKUP_WINDOW}$"; then
+    tmux kill-window -t "$SESSION:$LOOKUP_WINDOW"
+    echo "Closed tmux window: $LOOKUP_WINDOW"
+fi
+
+# Remove agent worktree
+if [ -d "$AGENT_DIR" ]; then
+    # Check if it's a git worktree
+    if git worktree list 2>/dev/null | grep -q "$AGENT_DIR"; then
+        git worktree remove --force "$AGENT_DIR"
+        echo "Removed worktree: $AGENT_DIR"
+    elif [[ "$AGENT_DIR" == /tmp/agent-* ]] || [[ "$AGENT_DIR" == */var/folders/* ]]; then
+        # Legacy: temp directory cleanup
+        rm -rf "$AGENT_DIR"
+        echo "Removed temp checkout: $AGENT_DIR"
+    else
+        echo "Warning: $AGENT_DIR is not a worktree, keeping it"
+    fi
+fi
+
+# Delete the agent branch
+if [ -n "$BRANCH" ]; then
+    git branch -D "$BRANCH" 2>/dev/null && echo "Deleted branch: $BRANCH" || true
+fi
+
+# Remove agent data directory
+if [ -n "$AGENT_DATA_DIR" ] && [ -d "$AGENT_DATA_DIR" ]; then
+    rm -rf "$AGENT_DATA_DIR"
+    echo "Removed agent data: $AGENT_DATA_DIR"
+fi
+
+echo "Agent cleanup complete"

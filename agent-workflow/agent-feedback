@@ -1,0 +1,59 @@
+#!/bin/bash
+set -e
+
+WINDOW=$1
+ACTION=$2  # "accept", "reject", or "comment"
+
+if [ -z "$WINDOW" ] || [ -z "$ACTION" ]; then
+    echo "Usage: agent-feedback <window-name> <accept|reject|comment>"
+    exit 1
+fi
+
+# Validate we're in a workspace
+if [ ! -f ".git/agent-workspace" ]; then
+    echo "Error: Not in an agent workspace (missing .git/agent-workspace marker)"
+    exit 1
+fi
+
+# Verify window exists in this workspace and get session + directories
+SESSION=""
+AGENT_DIR=""
+AGENT_DATA_DIR=""
+if [ -f ".git/agent-windows" ]; then
+    while IFS=$'\t' read -r w dir branch source_repo sess data_dir; do
+        if [ "$w" = "$WINDOW" ]; then
+            SESSION="$sess"
+            AGENT_DIR="$dir"
+            AGENT_DATA_DIR="$data_dir"
+            break
+        fi
+    done < ".git/agent-windows"
+    if [ -z "$SESSION" ]; then
+        echo "Error: Agent window '$WINDOW' not found in this workspace"
+        exit 1
+    fi
+else
+    echo "Error: No agents spawned from this workspace"
+    exit 1
+fi
+
+case $ACTION in
+    accept)
+        echo "PR accepted for $WINDOW"
+        echo "Agent can finish and exit when ready"
+        ;;
+    reject)
+        echo "PR rejected for $WINDOW"
+        echo "Switch to tab '$WINDOW' to discuss feedback with the agent"
+        echo "  tmux select-window -t '$SESSION:$WINDOW'"
+        ;;
+    comment)
+        echo "Comments added for $WINDOW"
+        echo "Switch to tab '$WINDOW' to discuss with the agent"
+        echo "  tmux select-window -t '$SESSION:$WINDOW'"
+        ;;
+    *)
+        echo "Unknown action: $ACTION (use accept, reject, or comment)"
+        exit 1
+        ;;
+esac

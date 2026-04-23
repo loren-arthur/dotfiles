@@ -1,0 +1,57 @@
+# Default allowed tools for spawned agents
+# One tool pattern per line, comments start with #
+# See: claude --help for --allowedTools format
+
+# Core file operations
+Edit
+Read
+Write
+Glob
+Grep
+
+# Git
+Bash(git:*)
+
+# Package managers
+Bash(uv:*)
+Bash(pip:*)
+Bash(npm:*)
+Bash(yarn:*)
+Bash(pnpm:*)
+Bash(cargo:*)
+
+# Shell utilities
+Bash(find:*)
+Bash(grep:*)
+Bash(rg:*)
+Bash(ls:*)
+Bash(cat:*)
+Bash(head:*)
+Bash(tail:*)
+Bash(wc:*)
+Bash(sort:*)
+Bash(uniq:*)
+Bash(xargs:*)
+
+# File operations
+Bash(mkdir:*)
+Bash(rm:*)
+Bash(cp:*)
+Bash(mv:*)
+Bash(touch:*)
+Bash(chmod:*)
+
+# Build and test
+Bash(make:*)
+Bash(go:*)
+Bash(python:*)
+Bash(python3:*)
+Bash(pytest:*)
+Bash(node:*)
+Bash(deno:*)
+Bash(rustc:*)
+Bash(ruff:*)
+
+# Agent workflow
+Bash(submit-review:*)
+Bash(aw:*)

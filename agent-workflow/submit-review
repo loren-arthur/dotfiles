@@ -1,0 +1,142 @@
+#!/bin/bash
+# Agent script to submit work for review
+# Usage: submit-review "commit message"
+
+MSG="${1:-Work in progress}"
+
+# Get target branch from git config or default
+TARGET=$(git config --get appraise.target 2>/dev/null || echo "")
+if [ -z "$TARGET" ]; then
+    echo "ERROR: No appraise target configured."
+    echo "This should be set automatically by agent-spawn. Are you in the right directory?"
+    exit 1
+fi
+
+# Check we're on an agent branch
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+if [[ ! "$CURRENT_BRANCH" =~ ^agent/ ]]; then
+    echo "ERROR: Not on an agent branch (current: $CURRENT_BRANCH)"
+    echo "You should be on a branch like 'agent/your-task-name'"
+    exit 1
+fi
+
+# Check for uncommitted changes that would block rebase
+if ! git diff --quiet || ! git diff --cached --quiet; then
+    echo "Staging all changes first..."
+    git add -A
+fi
+
+# Fetch latest (including notes for appraise) from local workspace
+echo "Fetching latest..."
+if ! git fetch local 2>&1; then
+    echo "ERROR: Failed to fetch from local workspace"
+    echo "Check that the 'local' remote is configured correctly"
+    exit 1
+fi
+# Force fetch notes to get latest review state
+git fetch local 'refs/notes/*:refs/notes/*' --force 2>&1 || echo "Note: Could not fetch review notes"
+
+# Abandon any existing review for this branch (allows clean resubmission)
+echo "Cleaning up old reviews..."
+git appraise abandon 2>/dev/null || true
+
+# Rebase on target to incorporate any merged changes
+echo "Rebasing on $TARGET..."
+if ! git rebase "local/$TARGET" 2>&1; then
+    echo ""
+    echo "========================================"
+    echo "REBASE CONFLICT - Manual resolution needed:"
+    echo "========================================"
+    echo "1. Fix conflicts in the listed files"
+    echo "2. Run: git add <fixed-files>"
+    echo "3. Run: git rebase --continue"
+    echo "4. Run: submit-review \"$MSG\""
+    echo ""
+    echo "Or to abort: git rebase --abort"
+    exit 1
+fi
+
+# Stage and commit any remaining changes
+git add -A
+if git diff --cached --quiet; then
+    # Check if we have commits to submit
+    COMMITS=$(git log --oneline "local/$TARGET..HEAD" | wc -l)
+    if [ "$COMMITS" -eq 0 ]; then
+        echo "ERROR: No changes to submit"
+        echo "Make some changes first, then run submit-review again"
+        exit 1
+    fi
+    echo "No new changes to commit ($COMMITS existing commit(s) will be submitted)"
+else
+    if ! git commit -m "$MSG" 2>&1; then
+        echo "ERROR: Commit failed"
+        exit 1
+    fi
+fi
+
+# Push with force-with-lease to local workspace (allows updates after rebase)
+echo "Pushing to local workspace..."
+if ! git push local HEAD --force-with-lease 2>&1; then
+    echo ""
+    echo "ERROR: Push failed"
+    echo "This can happen if:"
+    echo "  - Someone else pushed to this branch (unlikely for agent branches)"
+    echo "  - The local workspace is not configured correctly"
+    echo "Try: git push local HEAD --force-with-lease"
+    exit 1
+fi
+
+# Create fresh review request
+echo "Creating review request..."
+if ! git appraise request -m "$MSG" -target "refs/heads/$TARGET" 2>&1; then
+    echo ""
+    echo "ERROR: Failed to create review request"
+    echo "The push succeeded, so your code is on the branch."
+    echo "Try manually: git appraise request -m \"$MSG\" -target refs/heads/$TARGET"
+    exit 1
+fi
+
+# Push review notes to local workspace (force to handle diverged notes)
+echo "Pushing review notes..."
+if ! git push local 'refs/notes/*:refs/notes/*' --force 2>&1; then
+    echo ""
+    echo "WARNING: Failed to push review notes"
+    echo "The review was created but notes may not be visible to reviewer."
+    echo "Try: git push local 'refs/notes/*:refs/notes/*' --force"
+fi
+
+# Update status file for coordinator polling
+AGENT_NAME=${CURRENT_BRANCH#agent/}
+# Get the main workspace path (stored in the shared git dir)
+GIT_COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || git rev-parse --git-dir)
+WORKSPACE_PATH=$(cat "$GIT_COMMON_DIR/agent-workspace-path" 2>/dev/null || dirname "$GIT_COMMON_DIR")
+AGENT_DATA_DIR="$WORKSPACE_PATH/.git/agent-data/$AGENT_NAME"
+
+if [ -d "$AGENT_DATA_DIR" ]; then
+    # Write PR info
+    COMMIT=$(git rev-parse HEAD)
+    cat > "$AGENT_DATA_DIR/pr-info.json" << EOF
+{
+  "branch": "$CURRENT_BRANCH",
+  "target": "$TARGET",
+  "commit": "$COMMIT",
+  "description": "$MSG",
+  "submitted_at": "$(date -Iseconds)"
+}
+EOF
+    # Set status to review_requested
+    echo "review_requested" > "$AGENT_DATA_DIR/status"
+fi
+
+# Signal completion
+echo -e '\a'
+echo ""
+echo "========================================"
+echo "Review submitted successfully!"
+echo "========================================"
+echo "Branch: $CURRENT_BRANCH"
+echo "Target: $TARGET"
+echo "Status: review_requested"
+echo ""
+echo "Exiting - you will be restarted when feedback arrives."
+# Agent will exit naturally after this script completes (print mode)

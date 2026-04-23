@@ -1,0 +1,58 @@
+# Allowed tools for the coordinator agent
+# Includes everything agents have plus coordination commands
+
+# Core file operations
+Edit
+Read
+Write
+Glob
+Grep
+
+# Git
+Bash(git:*)
+
+# Package managers
+Bash(uv:*)
+Bash(pip:*)
+Bash(npm:*)
+Bash(yarn:*)
+Bash(pnpm:*)
+Bash(cargo:*)
+
+# Shell utilities
+Bash(find:*)
+Bash(grep:*)
+Bash(rg:*)
+Bash(ls:*)
+Bash(cat:*)
+Bash(head:*)
+Bash(tail:*)
+Bash(wc:*)
+Bash(sort:*)
+Bash(uniq:*)
+Bash(xargs:*)
+
+# File operations
+Bash(mkdir:*)
+Bash(rm:*)
+Bash(cp:*)
+Bash(mv:*)
+Bash(touch:*)
+Bash(chmod:*)
+
+# Build and test
+Bash(make:*)
+Bash(go:*)
+Bash(python:*)
+Bash(python3:*)
+Bash(pytest:*)
+Bash(node:*)
+Bash(deno:*)
+Bash(rustc:*)
+
+# Coordinator-specific: agent management
+Bash(agent-spawn:*)
+Bash(agent-list:*)
+Bash(agent-cleanup:*)
+Bash(agent-feedback:*)
+Bash(agent-tail:*)

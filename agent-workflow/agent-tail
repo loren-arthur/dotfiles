@@ -1,0 +1,74 @@
+#!/bin/bash
+set -e
+
+WINDOW=$1
+if [ -z "$WINDOW" ]; then
+    echo "Usage: agent-tail <window-name>"
+    exit 1
+fi
+
+# Validate we're in a workspace
+if [ ! -f ".git/agent-workspace" ]; then
+    echo "Error: Not in an agent workspace (missing .git/agent-workspace marker)"
+    exit 1
+fi
+
+# Find agent's claude directory
+AGENT_WINDOWS=".git/agent-windows"
+if [ ! -f "$AGENT_WINDOWS" ]; then
+    echo "No agents spawned from this workspace"
+    exit 1
+fi
+
+AGENT_DIR=""
+while IFS=$'\t' read -r w dir branch source_repo session data_dir; do
+    if [ "$w" = "$WINDOW" ]; then
+        AGENT_DIR="$dir"
+        break
+    fi
+done < "$AGENT_WINDOWS"
+
+if [ -z "$AGENT_DIR" ]; then
+    echo "Agent not found: $WINDOW"
+    exit 1
+fi
+
+# Claude stores projects in ~/.claude/projects/ with path-based hashing
+# Find the project that matches this agent's directory
+CLAUDE_PROJECTS="$HOME/.claude/projects"
+if [ ! -d "$CLAUDE_PROJECTS" ]; then
+    echo "No claude projects directory found"
+    exit 1
+fi
+
+# Find project dir containing this agent path (check settings.local.json or recent activity)
+PROJECT_DIR=""
+for dir in "$CLAUDE_PROJECTS"/*; do
+    if [ -d "$dir" ] && grep -q "$AGENT_DIR" "$dir"/* 2>/dev/null; then
+        PROJECT_DIR="$dir"
+        break
+    fi
+done
+
+# Fallback: use most recently modified project
+if [ -z "$PROJECT_DIR" ]; then
+    PROJECT_DIR=$(ls -td "$CLAUDE_PROJECTS"/*/ 2>/dev/null | head -1)
+fi
+
+if [ -z "$PROJECT_DIR" ]; then
+    echo "No claude project found for $WINDOW"
+    exit 1
+fi
+
+# Tail the conversation JSONL
+CONV_FILE=$(ls -t "$PROJECT_DIR"*.jsonl 2>/dev/null | head -1)
+if [ -n "$CONV_FILE" ]; then
+    echo "Tailing: $CONV_FILE"
+    echo "================================"
+    tail -f "$CONV_FILE" | while read line; do
+        # Extract just the content for readability
+        echo "$line" | jq -r '.content // .message // .' 2>/dev/null || echo "$line"
+    done
+else
+    echo "No conversation file found in $PROJECT_DIR"
+fi
