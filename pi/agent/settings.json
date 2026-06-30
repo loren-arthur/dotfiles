@@ -1,0 +1,11 @@
+{
+  "packages": [
+    "../../dd/datadog-pi-packages/packages/refresh-models",
+    "../../dd/datadog-pi-packages/packages/research-web",
+    "../../repo/pi-agent-board"
+  ],
+  "lastChangelogVersion": "0.80.2",
+  "theme": "light",
+  "defaultProvider": "ai-gw-anthropic-1m",
+  "defaultModel": "anthropic/claude-opus-4-8"
+}

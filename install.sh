@@ -19,5 +19,6 @@ link() {
 }
 
 link "$DOTFILES/nvim" "$HOME/.config/nvim"
+link "$DOTFILES/pi/agent/settings.json" "$HOME/.pi/agent/settings.json"
 
 echo "Done. Open nvim; lazy.nvim will bootstrap and install plugins."

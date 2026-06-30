@@ -2,3 +2,12 @@
 .DS_Store
 # nvim backups created by install.sh
 *.backup.*
+
+# --- pi: never commit secrets or transient state ---
+pi/agent/auth.json
+pi/agent/trust.json
+pi/agent/models.json
+pi/agent/refresh-models-version.json
+pi/agent/sessions/
+pi/agent/research-web/
+pi/agent/bin/

@@ -234,6 +234,22 @@ vim.opt.hlsearch = true
 vim.opt.incsearch = true
 
 -- Useful basics
+-- Markdown: toggle a checkbox on the current line ([ ] <-> [x])
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "markdown",
+  callback = function(ev)
+    vim.keymap.set("n", "<leader>x", function()
+      local line = vim.api.nvim_get_current_line()
+      if line:match("%[ %]") then
+        line = line:gsub("%[ %]", "[x]", 1)
+      elseif line:match("%[[xX]%]") then
+        line = line:gsub("%[[xX]%]", "[ ]", 1)
+      end
+      vim.api.nvim_set_current_line(line)
+    end, { buffer = ev.buf, desc = "Toggle markdown checkbox" })
+  end,
+})
+
 vim.keymap.set("n", "<Esc>", "<cmd>nohlsearch<CR>", { desc = "Clear search highlight" })
 vim.keymap.set("n", "<leader>w", "<cmd>w<CR>", { desc = "Write file" })
 vim.keymap.set("n", "<leader>q", "<cmd>q<CR>", { desc = "Quit window" })
