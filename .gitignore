@@ -1,0 +1,4 @@
+# OS cruft
+.DS_Store
+# nvim backups created by install.sh
+*.backup.*
