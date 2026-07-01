@@ -19,6 +19,7 @@ cd ~/dotfiles
 |------|--------------|
 | `nvim/` | `~/.config/nvim` |
 | `pi/agent/settings.json` | `~/.pi/agent/settings.json` |
+| `pi-agent-board/` | `~/repo/pi-agent-board` |
 
 ## Neovim
 
@@ -33,6 +34,8 @@ cd ~/dotfiles
 fresh machine — adjust or remove if you're not me:
 
 - `~/repo/pim` — local plugin loaded via `dir = ...`.
+- `../../dd/datadog-pi-packages/...` in `pi/agent/settings.json` — a Datadog
+  work repo; only present on that machine (see below).
 - `pi` CLI and `~/docs/work` — used by the `Pim*` orchestrator helpers.
 
 ## pi (coding agent)
@@ -40,6 +43,13 @@ fresh machine — adjust or remove if you're not me:
 Only hand-authored config is versioned: `pi/agent/settings.json` (packages,
 theme, default provider/model). Its `packages` paths are relative to
 `~/.pi/agent` (e.g. `../../repo/...`) and are machine-specific.
+
+The `pi-agent-board` package now lives **inside this repo** (`pi-agent-board/`)
+and is symlinked to `~/repo/pi-agent-board`; `settings.json` points at
+`~/dotfiles/pi-agent-board`, so it is fully portable.
+
+The `../../dd/datadog-pi-packages/*` packages are a Datadog work repo and are
+**not** portable — they only resolve on that machine. (Handling TBD.)
 
 Deliberately **not** versioned (see `.gitignore`):
 

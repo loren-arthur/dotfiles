@@ -11,3 +11,6 @@ pi/agent/refresh-models-version.json
 pi/agent/sessions/
 pi/agent/research-web/
 pi/agent/bin/
+
+# pi package deps (installed on demand)
+pi-agent-board/node_modules/

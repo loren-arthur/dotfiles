@@ -2,7 +2,7 @@
   "packages": [
     "../../dd/datadog-pi-packages/packages/refresh-models",
     "../../dd/datadog-pi-packages/packages/research-web",
-    "../../repo/pi-agent-board"
+    "~/dotfiles/pi-agent-board"
   ],
   "lastChangelogVersion": "0.80.2",
   "theme": "light",

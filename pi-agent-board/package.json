@@ -1,0 +1,17 @@
+{
+  "name": "pi-agent-board",
+  "version": "0.1.0",
+  "description": "Personal cross-project agent board for pi: tmux-spawned interactive sessions, task context, and handoffs.",
+  "private": true,
+  "keywords": ["pi-package"],
+  "type": "module",
+  "pi": {
+    "extensions": ["./extensions"],
+    "skills": ["./skills"],
+    "prompts": ["./prompts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  }
+}
