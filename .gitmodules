@@ -1,0 +1,3 @@
+[submodule "vendor/pim"]
+	path = vendor/pim
+	url = git@github.com:loren-arthur/pim.git

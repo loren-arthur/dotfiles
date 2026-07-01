@@ -19,8 +19,9 @@ link() {
 }
 
 link "$DOTFILES/nvim" "$HOME/.config/nvim"
-link "$DOTFILES/pi/agent/settings.json" "$HOME/.pi/agent/settings.json"
 # pi-agent-board lives inside this repo; keep the old ~/repo path working too.
 link "$DOTFILES/pi-agent-board" "$HOME/repo/pi-agent-board"
 
 echo "Done. Open nvim; lazy.nvim will bootstrap and install plugins."
+echo "pi is NOT configured by this installer — see README (pi setup) to create"
+echo "your machine-local ~/.pi/agent/settings.json."

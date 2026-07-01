@@ -20,7 +20,7 @@ vim.opt.rtp:prepend(lazypath)
 
 require("lazy").setup({
   {
-    dir = vim.fn.expand("~/repo/pim"),
+    dir = vim.fn.expand("~/dotfiles/vendor/pim"),
     name = "pim",
     lazy = false,
     config = function()
